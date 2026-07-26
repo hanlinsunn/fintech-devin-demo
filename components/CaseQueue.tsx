@@ -77,21 +77,30 @@ function SortArrows({ direction }: { direction: SortDirection | null }) {
 export function CaseQueue({ cases }: { cases: KycCase[] }) {
   const [riskFilter, setRiskFilter] = useState<'all' | RiskLevel>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | CaseStatus>('all');
+  const [analystFilter, setAnalystFilter] = useState<'all' | string>('all');
   const [sort, setSort] = useState<SortState | null>(null);
   const [page, setPage] = useState(1);
+
+  // Drawn from the queue itself so analysts no longer on the roster stay filterable.
+  const analysts = useMemo(
+    () =>
+      Array.from(new Set(cases.map((c) => c.assigned_analyst))).sort((a, b) => a.localeCompare(b)),
+    [cases],
+  );
 
   const visibleCases = useMemo(() => {
     const filtered = cases.filter(
       (c) =>
         (riskFilter === 'all' || c.risk_level === riskFilter) &&
-        (statusFilter === 'all' || c.status === statusFilter),
+        (statusFilter === 'all' || c.status === statusFilter) &&
+        (analystFilter === 'all' || c.assigned_analyst === analystFilter),
     );
     if (!sort) return filtered;
     const compare = COMPARATORS[sort.key];
     const factor = sort.direction === 'asc' ? 1 : -1;
     // Array.prototype.sort is stable, so equal rows keep the default queue order.
     return [...filtered].sort((a, b) => factor * compare(a, b));
-  }, [cases, riskFilter, statusFilter, sort]);
+  }, [cases, riskFilter, statusFilter, analystFilter, sort]);
 
   const pageCount = Math.max(1, Math.ceil(visibleCases.length / PAGE_SIZE));
   // Clamped rather than stored, so filtering down to fewer pages can't strand the view.
@@ -154,6 +163,27 @@ export function CaseQueue({ cases }: { cases: KycCase[] }) {
             {CASE_STATUSES.map((status) => (
               <option key={status} value={status}>
                 {statusLabel(status)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="analyst-filter" className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Assigned analyst
+          </label>
+          <select
+            id="analyst-filter"
+            value={analystFilter}
+            onChange={(e) => {
+              setAnalystFilter(e.target.value);
+              setPage(1);
+            }}
+            className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+          >
+            <option value="all">All analysts</option>
+            {analysts.map((analyst) => (
+              <option key={analyst} value={analyst}>
+                {analyst}
               </option>
             ))}
           </select>
