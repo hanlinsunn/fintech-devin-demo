@@ -203,3 +203,80 @@ describe('CaseQueue', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 });
+
+describe('CaseQueue pagination', () => {
+  // 60 cases: 3 pages of 25, with names/risk that make cross-page sorting checkable.
+  const MANY = Array.from({ length: 60 }, (_, i) =>
+    makeCase({
+      case_number: `KYC-${1000 + i}`,
+      full_name: `Analyst Case ${String(i).padStart(2, '0')}`,
+      risk_level: i === 59 ? 'high' : 'medium',
+      created_at: daysAgo(i),
+    }),
+  );
+
+  function nextButton() {
+    return screen.getByRole('button', { name: 'Next' });
+  }
+
+  function previousButton() {
+    return screen.getByRole('button', { name: 'Previous' });
+  }
+
+  it('shows 25 rows per page', () => {
+    render(<CaseQueue cases={MANY} />);
+    expect(caseOrder()).toHaveLength(25);
+    expect(caseOrder()[0]).toBe('KYC-1000');
+    expect(screen.getByTestId('page-indicator')).toHaveTextContent('Page 1 of 3');
+    expect(screen.getByTestId('page-range')).toHaveTextContent('Showing 1–25 of 60');
+    expect(screen.getByTestId('result-count')).toHaveTextContent('60 of 60 cases');
+  });
+
+  it('pages forward and back through the queue', async () => {
+    render(<CaseQueue cases={MANY} />);
+    expect(previousButton()).toBeDisabled();
+
+    await userEvent.click(nextButton());
+    expect(caseOrder()[0]).toBe('KYC-1025');
+    expect(screen.getByTestId('page-range')).toHaveTextContent('Showing 26–50 of 60');
+
+    await userEvent.click(nextButton());
+    expect(caseOrder()).toHaveLength(10);
+    expect(screen.getByTestId('page-range')).toHaveTextContent('Showing 51–60 of 60');
+    expect(nextButton()).toBeDisabled();
+
+    await userEvent.click(previousButton());
+    expect(caseOrder()[0]).toBe('KYC-1025');
+  });
+
+  it('sorts across the whole queue, not just the current page', async () => {
+    render(<CaseQueue cases={MANY} />);
+    await userEvent.click(screen.getByRole('button', { name: labelPattern('Full name') }));
+    expect(caseOrder()[0]).toBe('KYC-1000');
+
+    await userEvent.click(screen.getByRole('button', { name: labelPattern('Full name') }));
+    // Descending must surface the last case of the queue on page 1.
+    expect(caseOrder()[0]).toBe('KYC-1059');
+  });
+
+  it('returns to the first page when sorting or filtering changes', async () => {
+    render(<CaseQueue cases={MANY} />);
+    await userEvent.click(nextButton());
+    expect(screen.getByTestId('page-indicator')).toHaveTextContent('Page 2 of 3');
+
+    await userEvent.click(screen.getByRole('button', { name: labelPattern('City') }));
+    expect(screen.getByTestId('page-indicator')).toHaveTextContent('Page 1 of 3');
+
+    await userEvent.click(nextButton());
+    await userEvent.selectOptions(screen.getByLabelText('Risk level'), 'high');
+    expect(screen.getByTestId('page-indicator')).toHaveTextContent('Page 1 of 1');
+    expect(caseOrder()).toEqual(['KYC-1059']);
+  });
+
+  it('keeps a single page for a queue smaller than the page size', () => {
+    render(<CaseQueue cases={CASES} />);
+    expect(screen.getByTestId('page-indicator')).toHaveTextContent('Page 1 of 1');
+    expect(nextButton()).toBeDisabled();
+    expect(previousButton()).toBeDisabled();
+  });
+});
