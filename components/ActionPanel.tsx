@@ -143,7 +143,7 @@ export function ActionPanel({
         </p>
       )}
 
-      <div className="group relative" title={authorized ? undefined : NOT_AUTHORIZED_MESSAGE}>
+      <div className="group relative">
         <button
           type="submit"
           disabled={!canSubmit}
