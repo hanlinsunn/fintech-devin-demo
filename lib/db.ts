@@ -6,7 +6,7 @@
  * `TURSO_DATABASE_URL` is set. The schema is created and seeded from `data/cases.csv`
  * the first time the client is opened.
  */
-import { createClient, type Client } from '@libsql/client';
+import { createClient, type Client, type Row } from '@libsql/client';
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { parseCsvRecords } from './csv';
@@ -154,10 +154,15 @@ export function closeDb(): void {
   initPromise = null;
 }
 
+/** libSQL rows carry prototype methods; client components only accept plain objects. */
+function plain<T>(row: Row | undefined): T | undefined {
+  return row ? ({ ...row } as unknown as T) : undefined;
+}
+
 export async function listCases(): Promise<KycCase[]> {
   const connection = await getClient();
   const result = await connection.execute('SELECT * FROM cases ORDER BY created_at DESC');
-  return result.rows as unknown as KycCase[];
+  return result.rows.map((row) => ({ ...row }) as unknown as KycCase);
 }
 
 export async function getCase(caseNumber: string): Promise<KycCase | undefined> {
@@ -166,7 +171,7 @@ export async function getCase(caseNumber: string): Promise<KycCase | undefined> 
     sql: 'SELECT * FROM cases WHERE case_number = ?',
     args: [caseNumber],
   });
-  return result.rows[0] as unknown as KycCase | undefined;
+  return plain<KycCase>(result.rows[0]);
 }
 
 export async function listCaseActions(caseNumber: string): Promise<CaseAction[]> {
@@ -175,7 +180,7 @@ export async function listCaseActions(caseNumber: string): Promise<CaseAction[]>
     sql: 'SELECT * FROM case_actions WHERE case_number = ? ORDER BY id ASC',
     args: [caseNumber],
   });
-  return result.rows as unknown as CaseAction[];
+  return result.rows.map((row) => ({ ...row }) as unknown as CaseAction);
 }
 
 function validate(input: RecordActionInput): void {
@@ -247,8 +252,8 @@ export async function recordAction(input: RecordActionInput): Promise<RecordActi
     });
     await tx.commit();
     return {
-      case: updated.rows[0] as unknown as KycCase,
-      action: action.rows[0] as unknown as CaseAction,
+      case: plain<KycCase>(updated.rows[0])!,
+      action: plain<CaseAction>(action.rows[0])!,
     };
   } catch (error) {
     await tx.rollback();
