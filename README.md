@@ -4,10 +4,17 @@ An internal-tool prototype for compliance/audit analysts at a Series C fintech: 
 customer applications and take auditable actions on them.
 
 Built with Next.js 14 (App Router) + TypeScript, Tailwind CSS, Next.js Route Handlers for the API,
-and SQLite over libSQL (`@libsql/client`) seeded from a bundled CSV. No Docker, no cloud account, no
-env keys.
+and SQLite over libSQL (`@libsql/client`) seeded from a bundled CSV. Running locally needs no
+Docker, no cloud account and no env keys; the hosted version is backed by a remote Turso/libSQL
+database through the same client.
 
 ## Quick start
+
+Two ways to try it:
+
+**(a) Use the live app** — open <https://fintech-devin-demo.vercel.app/>. Nothing to install.
+
+**(b) Run it locally**
 
 ```bash
 npm install
@@ -17,6 +24,8 @@ npm run dev     # http://localhost:3000
 On first request the app creates `data/kyc.db` and seeds the `cases` table from `data/cases.csv`.
 Delete `data/kyc.db` to reset the demo to the seeded state.
 
+### Dev scripts
+
 ```bash
 npm test        # Jest + Testing Library
 npm run lint
@@ -24,34 +33,6 @@ npm run typecheck
 npm run build && npm start
 npm run generate:seed   # regenerate data/cases.csv
 ```
-
-## Deploy to Vercel
-
-Serverless instances have no durable filesystem, so on Vercel the app points `@libsql/client` at a
-remote [Turso](https://turso.tech) database. Set these two variables in the Vercel dashboard
-(Project → Settings → Environment Variables):
-
-| variable | value |
-| --- | --- |
-| `TURSO_DATABASE_URL` | `libsql://<your-db>-<org>.turso.io` |
-| `TURSO_AUTH_TOKEN` | a token for that database |
-
-Create them with the Turso CLI:
-
-```bash
-curl -sSfL https://get.tur.so/install.sh | bash
-turso auth login
-turso db create kyc-review-queue
-turso db show kyc-review-queue --url        # -> TURSO_DATABASE_URL
-turso db tokens create kyc-review-queue     # -> TURSO_AUTH_TOKEN
-```
-
-With those set, case updates and audit-log rows persist durably and are shared across all serverless
-instances. The schema is created and seeded from `data/cases.csv` on first use — the CSV is bundled
-into the server output via `experimental.outputFileTracingIncludes` in `next.config.js`.
-
-Omitting both variables (as in local development) falls back to an embedded `data/kyc.db` file, so
-running the app locally still needs no account and no env vars.
 
 ## What the app does
 
@@ -78,7 +59,13 @@ running the app locally still needs no account and no env vars.
 
 ## Data model
 
-`lib/db.ts` owns all database access; nothing else touches `@libsql/client`.
+`lib/db.ts` owns all database access; nothing else touches `@libsql/client`. `createDbClient` picks
+the backing store: with no env vars it opens an embedded SQLite file via
+`createClient({ url: 'file:<data/kyc.db>' })`, and when `TURSO_DATABASE_URL` (plus
+`TURSO_AUTH_TOKEN`) is set — as on the hosted Vercel deployment, where serverless instances have no
+durable filesystem — it opens that remote [Turso](https://turso.tech)/libSQL database instead.
+Either way `getClient` caches one client per process and `initialize` creates the schema and, when
+`cases` is empty, seeds it from `data/cases.csv`.
 
 `cases`
 | column | notes |
