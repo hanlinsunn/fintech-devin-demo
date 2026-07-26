@@ -24,6 +24,20 @@ npm run build && npm start
 npm run generate:seed   # regenerate data/cases.csv
 ```
 
+## Deploy to Vercel
+
+The app runs statelessly on Vercel: `vercel.json` sets `KYC_DB_PATH=/tmp/kyc.db`, the only writable
+directory in the serverless runtime (the same variable can be set in the Vercel dashboard instead).
+On a cold start the SQLite file does not exist, so `lib/db.ts` recreates and re-seeds it from
+`data/cases.csv`, which is bundled into the server output via `experimental.outputFileTracingIncludes`
+in `next.config.js`.
+
+Consequences, all acceptable for a demo: data resets on every cold start, and concurrent instances
+each have their own `/tmp` database, so actions taken on one instance are not visible on another.
+Actions submitted within a warm instance behave normally.
+
+Local development is unchanged — no env vars are needed and the app keeps using `data/kyc.db`.
+
 ## What the app does
 
 - **Queue (`/`)** — table of all cases with case number, full name, masked SSN, reason flagged,
