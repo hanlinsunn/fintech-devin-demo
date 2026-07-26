@@ -10,6 +10,8 @@ export function useTempDb(): { dir: string; file: string; cleanup: () => void } 
   const dir = mkdtempSync(path.join(os.tmpdir(), 'kyc-test-'));
   const file = path.join(dir, 'kyc.db');
   process.env.KYC_DB_PATH = file;
+  delete process.env.TURSO_DATABASE_URL;
+  delete process.env.TURSO_AUTH_TOKEN;
   return {
     dir,
     file,

@@ -40,7 +40,7 @@ export async function POST(request: Request, { params }: { params: { caseNumber:
   }
 
   const analyst = actingAnalyst(request, body);
-  const kycCase = getCase(params.caseNumber);
+  const kycCase = await getCase(params.caseNumber);
   if (!kycCase) {
     return NextResponse.json(
       { error: new CaseNotFoundError(params.caseNumber).message },
@@ -52,7 +52,7 @@ export async function POST(request: Request, { params }: { params: { caseNumber:
   }
 
   try {
-    const result = recordAction({
+    const result = await recordAction({
       caseNumber: params.caseNumber,
       action: body.action as CaseActionType,
       comment: body.comment ?? '',
