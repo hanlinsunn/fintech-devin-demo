@@ -125,10 +125,32 @@ describe('CaseQueue', () => {
     expect(screen.queryByRole('link', { name: 'KYC-0002' })).not.toBeInTheDocument();
   });
 
+  it('filters by assigned analyst', async () => {
+    render(<CaseQueue cases={CASES} />);
+    await userEvent.selectOptions(screen.getByLabelText('Assigned analyst'), 'Florence');
+    expect(screen.getByRole('link', { name: 'KYC-0002' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'KYC-0001' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('result-count')).toHaveTextContent('1 of 3 cases');
+  });
+
+  it('offers each analyst in the queue exactly once', () => {
+    render(<CaseQueue cases={[...CASES, makeCase({ case_number: 'KYC-0004', assigned_analyst: 'Daniel' })]} />);
+    expect(
+      within(screen.getByLabelText('Assigned analyst')).getAllByRole('option').map((o) => o.textContent),
+    ).toEqual(['All analysts', 'Daniel', 'Florence', 'Patrick']);
+  });
+
   it('combines the risk and status filters', async () => {
     render(<CaseQueue cases={CASES} />);
     await userEvent.selectOptions(screen.getByLabelText('Risk level'), 'high');
     await userEvent.selectOptions(screen.getByLabelText('Status'), 'approved');
+    expect(screen.getByText('No cases match the selected filters.')).toBeInTheDocument();
+  });
+
+  it('combines the analyst filter with the other filters', async () => {
+    render(<CaseQueue cases={CASES} />);
+    await userEvent.selectOptions(screen.getByLabelText('Assigned analyst'), 'Florence');
+    await userEvent.selectOptions(screen.getByLabelText('Risk level'), 'medium');
     expect(screen.getByText('No cases match the selected filters.')).toBeInTheDocument();
   });
 
