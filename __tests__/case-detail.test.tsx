@@ -1,0 +1,116 @@
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { CaseDetail } from '@/components/CaseDetail';
+import { maskSsn, type CaseAction } from '@/lib/domain';
+import { makeCase } from './helpers/fixtures';
+
+const refresh = jest.fn();
+jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => refresh() }) }));
+
+const KYC_CASE = makeCase({
+  case_number: 'KYC-0042',
+  full_name: 'Elena Brennan',
+  date_of_birth: '1991-11-30',
+  home_address: '77 Cedar Ln, Seattle, WA 98101',
+  ssn: '553-21-8844',
+  last_utility_bill_address: '77 Cedar Ln, Seattle, WA 98101',
+  drivers_license_number: 'WA-9931882',
+  applicant_notes: 'Legal name change after marriage with supporting documentation provided.',
+  city: 'Seattle',
+});
+
+const ACTIONS: CaseAction[] = [
+  {
+    id: 1,
+    case_number: 'KYC-0042',
+    action: 'request_docs',
+    comment: 'Requested the marriage certificate',
+    analyst: 'Florence',
+    created_at: '2024-09-01T10:00:00.000Z',
+  },
+];
+
+beforeEach(() => {
+  refresh.mockClear();
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ case: KYC_CASE, action: ACTIONS[0] }),
+  }) as unknown as typeof fetch;
+});
+
+describe('CaseDetail', () => {
+  it('shows every PII field, the notes, and the city', () => {
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    expect(screen.getByText('1991-11-30')).toBeInTheDocument();
+    expect(screen.getAllByText('77 Cedar Ln, Seattle, WA 98101')).toHaveLength(2);
+    expect(screen.getByText('WA-9931882')).toBeInTheDocument();
+    expect(screen.getByText(/legal name change after marriage/i)).toBeInTheDocument();
+    expect(screen.getByText('Seattle')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /KYC-0042 — Elena Brennan/ })).toBeInTheDocument();
+  });
+
+  it('shows the SSN unmasked, unlike the queue', () => {
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    expect(screen.getByText('553-21-8844')).toBeInTheDocument();
+    expect(screen.queryByText(maskSsn(KYC_CASE.ssn))).not.toBeInTheDocument();
+  });
+
+  it('lists the existing audit log entries', () => {
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    expect(screen.getByText('Requested the marriage certificate')).toBeInTheDocument();
+    expect(screen.getByText(/request_docs · Florence/)).toBeInTheDocument();
+  });
+
+  it('keeps submit disabled until a non-empty comment is entered', async () => {
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    const submit = screen.getByRole('button', { name: /submit action/i });
+    expect(submit).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText(/comment/i), '   ');
+    expect(submit).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText(/comment/i), 'Verified against the court order');
+    expect(submit).toBeEnabled();
+  });
+
+  it('posts the action, comment, and acting analyst, then refreshes', async () => {
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    await userEvent.selectOptions(screen.getByLabelText('Action'), 'approve');
+    await userEvent.selectOptions(screen.getByLabelText('Acting analyst'), 'Daniel');
+    await userEvent.type(screen.getByLabelText(/comment/i), 'Documents verified');
+    await userEvent.click(screen.getByRole('button', { name: /submit action/i }));
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/cases/KYC-0042/actions',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body).toEqual({ action: 'approve', comment: 'Documents verified', analyst: 'Daniel' });
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it('includes the target analyst when reassigning', async () => {
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    await userEvent.selectOptions(screen.getByLabelText('Action'), 'reassign');
+    await userEvent.selectOptions(screen.getByLabelText('Reassign to'), 'Patrick');
+    await userEvent.type(screen.getByLabelText(/comment/i), 'Patrick owns this region');
+    await userEvent.click(screen.getByRole('button', { name: /submit action/i }));
+
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body).toMatchObject({ action: 'reassign', assignTo: 'Patrick' });
+  });
+
+  it('surfaces an API error to the analyst', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'A comment is required' }),
+    }) as unknown as typeof fetch;
+
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    await userEvent.type(screen.getByLabelText(/comment/i), 'x');
+    await userEvent.click(screen.getByRole('button', { name: /submit action/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('A comment is required');
+    expect(refresh).not.toHaveBeenCalled();
+  });
+});
