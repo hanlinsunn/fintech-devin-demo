@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { SessionBar } from '@/components/SessionBar';
+import { getSessionAnalyst } from '@/lib/session';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -8,6 +10,7 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const analyst = getSessionAnalyst();
   return (
     <html lang="en">
       <body>
@@ -16,9 +19,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="text-lg font-semibold">
               KYC Review Queue
             </Link>
-            <span className="text-xs text-slate-500">
-              Demo environment — all PII shown is fake
-            </span>
+            <div className="flex items-center gap-6">
+              <span className="text-xs text-slate-500">
+                Demo environment — all PII shown is fake
+              </span>
+              {analyst && <SessionBar analyst={analyst} />}
+            </div>
           </div>
         </header>
         <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>

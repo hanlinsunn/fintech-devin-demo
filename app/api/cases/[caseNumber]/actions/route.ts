@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
-import { CaseNotFoundError, ValidationError, recordAction } from '@/lib/db';
+import { CaseNotFoundError, ValidationError, getCase, recordAction } from '@/lib/db';
+import { NOT_AUTHORIZED_MESSAGE, SESSION_COOKIE, canActOnCase, isAnalyst } from '@/lib/auth';
 import { CASE_ACTIONS, type CaseActionType } from '@/lib/domain';
 
 export const dynamic = 'force-dynamic';
@@ -8,9 +9,19 @@ export const dynamic = 'force-dynamic';
 interface ActionBody {
   action?: string;
   comment?: string;
-  /** Acting analyst identity; a first-class field so role checks can be added later. */
+  /** Fallback acting identity for API clients that carry no session cookie. */
   analyst?: string;
   assignTo?: string;
+}
+
+/** The session cookie is the acting identity; the body is only a fallback for API clients. */
+function actingAnalyst(request: Request, body: ActionBody): string {
+  const cookie = request.headers
+    .get('cookie')
+    ?.split(';')
+    .map((part) => part.trim().split('='))
+    .find(([name]) => name === SESSION_COOKIE)?.[1];
+  return isAnalyst(cookie) ? cookie : body.analyst ?? '';
 }
 
 export async function POST(request: Request, { params }: { params: { caseNumber: string } }) {
@@ -28,12 +39,24 @@ export async function POST(request: Request, { params }: { params: { caseNumber:
     );
   }
 
+  const analyst = actingAnalyst(request, body);
+  const kycCase = getCase(params.caseNumber);
+  if (!kycCase) {
+    return NextResponse.json(
+      { error: new CaseNotFoundError(params.caseNumber).message },
+      { status: 404 },
+    );
+  }
+  if (!canActOnCase(kycCase, analyst)) {
+    return NextResponse.json({ error: NOT_AUTHORIZED_MESSAGE }, { status: 403 });
+  }
+
   try {
     const result = recordAction({
       caseNumber: params.caseNumber,
       action: body.action as CaseActionType,
       comment: body.comment ?? '',
-      analyst: body.analyst ?? '',
+      analyst,
       assignTo: body.assignTo,
     });
     revalidatePath('/');

@@ -17,6 +17,7 @@ const KYC_CASE = makeCase({
   drivers_license_number: 'WA-9931882',
   applicant_notes: 'Legal name change after marriage with supporting documentation provided.',
   city: 'Seattle',
+  assigned_analyst: 'Florence',
 });
 
 const ACTIONS: CaseAction[] = [
@@ -40,7 +41,7 @@ beforeEach(() => {
 
 describe('CaseDetail', () => {
   it('shows every PII field, the notes, and the city', () => {
-    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} sessionAnalyst="Florence" />);
     expect(screen.getByText('1991-11-30')).toBeInTheDocument();
     expect(screen.getAllByText('77 Cedar Ln, Seattle, WA 98101')).toHaveLength(2);
     expect(screen.getByText('WA-9931882')).toBeInTheDocument();
@@ -50,19 +51,19 @@ describe('CaseDetail', () => {
   });
 
   it('shows the SSN unmasked, unlike the queue', () => {
-    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} sessionAnalyst="Florence" />);
     expect(screen.getByText('553-21-8844')).toBeInTheDocument();
     expect(screen.queryByText(maskSsn(KYC_CASE.ssn))).not.toBeInTheDocument();
   });
 
   it('lists the existing audit log entries', () => {
-    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} sessionAnalyst="Florence" />);
     expect(screen.getByText('Requested the marriage certificate')).toBeInTheDocument();
     expect(screen.getByText(/request_docs · Florence/)).toBeInTheDocument();
   });
 
   it('keeps submit disabled until a non-empty comment is entered', async () => {
-    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} sessionAnalyst="Florence" />);
     const submit = screen.getByRole('button', { name: /submit action/i });
     expect(submit).toBeDisabled();
 
@@ -73,10 +74,9 @@ describe('CaseDetail', () => {
     expect(submit).toBeEnabled();
   });
 
-  it('posts the action, comment, and acting analyst, then refreshes', async () => {
-    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+  it('posts the action and comment, then refreshes', async () => {
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} sessionAnalyst="Florence" />);
     await userEvent.selectOptions(screen.getByLabelText('Action'), 'approve');
-    await userEvent.selectOptions(screen.getByLabelText('Acting analyst'), 'Daniel');
     await userEvent.type(screen.getByLabelText(/comment/i), 'Documents verified');
     await userEvent.click(screen.getByRole('button', { name: /submit action/i }));
 
@@ -85,12 +85,29 @@ describe('CaseDetail', () => {
       expect.objectContaining({ method: 'POST' }),
     );
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
-    expect(body).toEqual({ action: 'approve', comment: 'Documents verified', analyst: 'Daniel' });
+    expect(body).toEqual({ action: 'approve', comment: 'Documents verified' });
     expect(refresh).toHaveBeenCalled();
   });
 
+  it('shows the assigned analyst as a read-only acting analyst', () => {
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} sessionAnalyst="Florence" />);
+    expect(screen.queryByLabelText('Acting analyst')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Florence').length).toBeGreaterThan(0);
+  });
+
+  it('blocks and explains actions on another analyst’s case', () => {
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} sessionAnalyst="Daniel" />);
+
+    expect(screen.getByLabelText('Action')).toBeDisabled();
+    expect(screen.getByLabelText(/comment/i)).toBeDisabled();
+    expect(screen.getByRole('button', { name: /submit action/i })).toBeDisabled();
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Not authorized to take this action');
+    expect(screen.getByRole('alert')).toHaveTextContent('Not authorized to take this action');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it('includes the target analyst when reassigning', async () => {
-    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} sessionAnalyst="Florence" />);
     await userEvent.selectOptions(screen.getByLabelText('Action'), 'reassign');
     await userEvent.selectOptions(screen.getByLabelText('Reassign to'), 'Patrick');
     await userEvent.type(screen.getByLabelText(/comment/i), 'Patrick owns this region');
@@ -106,7 +123,7 @@ describe('CaseDetail', () => {
       json: async () => ({ error: 'A comment is required' }),
     }) as unknown as typeof fetch;
 
-    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} sessionAnalyst="Florence" />);
     await userEvent.type(screen.getByLabelText(/comment/i), 'x');
     await userEvent.click(screen.getByRole('button', { name: /submit action/i }));
 
