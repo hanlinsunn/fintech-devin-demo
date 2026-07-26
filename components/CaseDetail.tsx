@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ActionPanel } from './ActionPanel';
+import { canActOnCase } from '@/lib/auth';
 import { formatAge, type CaseAction, type KycCase } from '@/lib/domain';
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -38,9 +39,11 @@ function Pill({
 export function CaseDetail({
   kycCase,
   actions,
+  sessionAnalyst,
 }: {
   kycCase: KycCase;
   actions: CaseAction[];
+  sessionAnalyst: string | null;
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -101,7 +104,11 @@ export function CaseDetail({
         </section>
 
         <aside>
-          <ActionPanel caseNumber={kycCase.case_number} currentAnalyst={kycCase.assigned_analyst} />
+          <ActionPanel
+            caseNumber={kycCase.case_number}
+            assignedAnalyst={kycCase.assigned_analyst}
+            authorized={canActOnCase(kycCase, sessionAnalyst)}
+          />
         </aside>
       </div>
     </div>

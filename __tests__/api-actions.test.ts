@@ -18,13 +18,23 @@ afterAll(() => {
   temp.cleanup();
 });
 
-function post(caseNumber: string, body: unknown) {
+function post(caseNumber: string, body: unknown, signedInAs?: string) {
   const request = new Request(`http://localhost/api/cases/${caseNumber}/actions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(signedInAs ? { cookie: `kyc_analyst=${signedInAs}` } : {}),
+    },
     body: JSON.stringify(body),
   });
   return POST(request, { params: { caseNumber } });
+}
+
+/** A case with no audit history, assigned to `analyst`. */
+function untouchedCaseFor(analyst: string): string {
+  return listCases().find(
+    (c) => c.assigned_analyst === analyst && listCaseActions(c.case_number).length === 0,
+  )!.case_number;
 }
 
 describe('GET /api/cases', () => {
@@ -57,53 +67,71 @@ describe('GET /api/cases/[caseNumber]', () => {
 });
 
 describe('POST /api/cases/[caseNumber]/actions', () => {
-  it('records the action with the acting analyst from the request', async () => {
-    const caseNumber = listCases().find((c) => listCaseActions(c.case_number).length === 0)!
-      .case_number;
-    const response = await post(caseNumber, {
-      action: 'escalate',
-      comment: 'Sanctions hit needs compliance sign-off',
-      analyst: 'Patrick',
-    });
+  it('records the action with the signed-in analyst', async () => {
+    const caseNumber = untouchedCaseFor('Patrick');
+    const response = await post(
+      caseNumber,
+      { action: 'escalate', comment: 'Sanctions hit needs compliance sign-off' },
+      'Patrick',
+    );
     const payload = await response.json();
     expect(response.status).toBe(201);
     expect(payload.case.status).toBe('escalated');
     expect(payload.action.analyst).toBe('Patrick');
   });
 
+  it('rejects an action on another analyst’s case with 403', async () => {
+    const caseNumber = untouchedCaseFor('Florence');
+    const response = await post(
+      caseNumber,
+      { action: 'approve', comment: 'Not my case' },
+      'Daniel',
+    );
+    expect(response.status).toBe(403);
+    expect((await response.json()).error).toBe('Not authorized to take this action');
+    expect(listCaseActions(caseNumber)).toHaveLength(0);
+  });
+
+  it('rejects an unauthenticated action with 403', async () => {
+    const caseNumber = untouchedCaseFor('Florence');
+    const response = await post(caseNumber, { action: 'approve', comment: 'Who am I' });
+    expect(response.status).toBe(403);
+    expect(listCaseActions(caseNumber)).toHaveLength(0);
+  });
+
   it('rejects a missing comment with 400', async () => {
-    const caseNumber = listCases()[0].case_number;
-    const response = await post(caseNumber, { action: 'approve', comment: '', analyst: 'Daniel' });
+    const caseNumber = untouchedCaseFor('Daniel');
+    const response = await post(caseNumber, { action: 'approve', comment: '' }, 'Daniel');
     expect(response.status).toBe(400);
     expect((await response.json()).error).toMatch(/comment is required/i);
   });
 
   it('rejects an unknown action with 400', async () => {
-    const caseNumber = listCases()[0].case_number;
-    const response = await post(caseNumber, {
-      action: 'delete_everything',
-      comment: 'nope',
-      analyst: 'Daniel',
-    });
+    const caseNumber = untouchedCaseFor('Daniel');
+    const response = await post(
+      caseNumber,
+      { action: 'delete_everything', comment: 'nope' },
+      'Daniel',
+    );
     expect(response.status).toBe(400);
   });
 
   it('rejects an oversized comment with 400', async () => {
-    const caseNumber = listCases()[0].case_number;
-    const response = await post(caseNumber, {
-      action: 'approve',
-      comment: 'x'.repeat(MAX_COMMENT_LENGTH + 1),
-      analyst: 'Daniel',
-    });
+    const caseNumber = untouchedCaseFor('Daniel');
+    const response = await post(
+      caseNumber,
+      { action: 'approve', comment: 'x'.repeat(MAX_COMMENT_LENGTH + 1) },
+      'Daniel',
+    );
     expect(response.status).toBe(400);
   });
 
   it('returns a clean 404 for an action on a non-existent case', async () => {
-    const response = await post('KYC-MISSING', {
-      action: 'approve',
-      comment: 'Should not apply',
-      analyst: 'Florence',
-    });
+    const response = await post(
+      'KYC-MISSING',
+      { action: 'approve', comment: 'Should not apply' },
+      'Florence',
+    );
     expect(response.status).toBe(404);
     expect((await response.json()).error).toMatch(/does not exist/);
   });
