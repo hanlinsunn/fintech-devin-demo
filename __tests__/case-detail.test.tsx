@@ -86,6 +86,21 @@ describe('CaseDetail', () => {
     }
   });
 
+  it.each([
+    { risk: 'high' as const, tone: 'bg-red-50', otherTone: 'bg-amber-50' },
+    { risk: 'medium' as const, tone: 'bg-amber-50', otherTone: 'bg-red-50' },
+  ])('tints the $risk risk pill without keeping the neutral colours', ({ risk, tone, otherTone }) => {
+    render(<CaseDetail kycCase={makeCase({ risk_level: risk })} actions={[]} />);
+    const pill = screen.getByText(`${risk} risk`);
+
+    expect(pill).toHaveClass(tone);
+    expect(pill).not.toHaveClass(otherTone);
+    // A neutral class left alongside the tone wins on Tailwind source order, so the pill renders grey.
+    expect(pill).not.toHaveClass('bg-slate-100');
+    expect(pill).not.toHaveClass('text-slate-700');
+    expect(pill).not.toHaveClass('border-slate-200');
+  });
+
   it('defaults the action dropdown to no selection', () => {
     render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
     const select = screen.getByLabelText('Action') as HTMLSelectElement;

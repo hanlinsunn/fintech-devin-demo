@@ -11,11 +11,24 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** Tones are whole colour sets: appending to a default would lose to Tailwind's source order. */
+const PILL_TONES = {
+  neutral: 'border-slate-200 bg-slate-100 text-slate-700',
+  high: 'border-red-200 bg-red-50 text-red-800',
+  medium: 'border-amber-200 bg-amber-50 text-amber-800',
+} as const;
+
 /** Rounded label sized to its own text: no truncation, wraps as a whole pill. */
-function Pill({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+function Pill({
+  children,
+  tone = 'neutral',
+}: {
+  children: React.ReactNode;
+  tone?: keyof typeof PILL_TONES;
+}) {
   return (
     <li
-      className={`inline-flex items-center whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-medium capitalize text-slate-700 ${className}`}
+      className={`inline-flex items-center whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium capitalize ${PILL_TONES[tone]}`}
     >
       {children}
     </li>
@@ -40,15 +53,7 @@ export function CaseDetail({
         </h1>
         <ul className="mt-3 flex flex-wrap items-center gap-2" aria-label="Case attributes">
           <Pill>{kycCase.reason_flagged}</Pill>
-          <Pill
-            className={
-              kycCase.risk_level === 'high'
-                ? 'border-red-200 bg-red-50 text-red-800'
-                : 'border-amber-200 bg-amber-50 text-amber-800'
-            }
-          >
-            {kycCase.risk_level} risk
-          </Pill>
+          <Pill tone={kycCase.risk_level}>{kycCase.risk_level} risk</Pill>
           <Pill>{kycCase.status.replace(/_/g, ' ')}</Pill>
           <Pill>open {formatAge(kycCase.created_at)}</Pill>
         </ul>
