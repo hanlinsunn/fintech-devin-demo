@@ -35,8 +35,14 @@ npm run generate:seed   # regenerate data/cases.csv
 - **Action panel** — pick one of five actions (approve, reject, request documents, escalate,
   reassign) and enter a required comment. Submit stays disabled until the comment is non-empty.
   Submitting POSTs to the API, which writes transactionally and revalidates the queue.
-- **Acting analyst** — there is no auth, so the analyst is chosen from a dropdown (Florence,
-  Patrick, Daniel).
+- **Sign in (`/sign-in`)** — the app opens on a sign-in screen where you pick who you are:
+  Florence (senior analyst), Patrick (analyst), or Daniel (analyst). The choice is stored in the
+  `kyc_analyst` cookie; `middleware.ts` redirects anyone without it back to the sign-in screen, and
+  the header shows the signed-in analyst with a Sign out button.
+- **Acting analyst** — no longer selectable: the action panel shows the case's assigned analyst
+  read-only, and only that analyst may act on the case. For anyone else the panel is disabled and
+  the Submit button carries a "Not authorized to take this action" tooltip; the API independently
+  returns `403` with the same message.
 
 ## Data model
 
@@ -70,7 +76,12 @@ mutated.
 | --- | --- | --- |
 | `GET` | `/api/cases` | full queue |
 | `GET` | `/api/cases/:caseNumber` | case plus its audit log; 404 when unknown |
-| `POST` | `/api/cases/:caseNumber/actions` | `{ action, comment, analyst, assignTo? }` → 201 with the updated case and the new audit row; 400 on validation errors, 404 for unknown cases |
+| `POST` | `/api/session` | `{ analyst }` → sets the `kyc_analyst` cookie; 400 for an unknown analyst |
+| `DELETE` | `/api/session` | clears the session cookie |
+| `POST` | `/api/cases/:caseNumber/actions` | `{ action, comment, assignTo? }` → 201 with the updated case and the new audit row; 400 on validation errors, 403 when the acting analyst is not the assigned analyst, 404 for unknown cases |
+
+The acting analyst comes from the session cookie (the `analyst` body field is only a fallback for
+API clients without one).
 
 ## Seed data
 
@@ -88,20 +99,26 @@ generator — not the app — enforces the data constraints:
 
 `npm test` re-verifies these invariants against the committed CSV.
 
-## Forward compatibility
+## Access control
 
-Role-based permissions are intentionally **not** implemented, but nothing precludes them: the
-acting analyst is an explicit identity that flows UI → API request body → data layer and is stored
-on every `case_actions` row. Permission checks can be layered into the route handler and data layer
-without changing the data model or the API shape.
+`lib/auth.ts` holds the whole policy: `canActOnCase` grants a case only to its `assigned_analyst`,
+including for the senior analyst. It is enforced twice — the UI disables the action panel, and the
+route handler re-checks the session before touching the data layer. `lib/db.ts` is unchanged and
+stays purely a data layer. Note the seed data assigns every high-risk case to Florence, so Patrick
+and Daniel can only act on medium-risk cases.
+
+This is a prototype identity: a plain cookie with no password. A production version would swap
+`lib/session.ts` for SSO-issued sessions without changing `canActOnCase` or its call sites.
 
 ## Tests
 
 `npm test` covers the queue columns/age computation/sort/filter/empty state, the detail view's PII
 (masked in the queue, unmasked in detail), each of the five actions and the status it produces,
 `reassign` updating `assigned_analyst`, comment validation (empty and oversized), unknown cases and
-malformed JSON, seed-data integrity, persistence across a simulated server restart, and audit-log
-append-only behaviour.
+malformed JSON, seed-data integrity, persistence across a simulated server restart, audit-log
+append-only behaviour, the sign-in form and session API, and the authorization rules (403 for a
+case assigned to someone else or for an unauthenticated caller, disabled panel plus tooltip in the
+UI).
 
 ## Security note
 
