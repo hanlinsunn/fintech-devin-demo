@@ -11,6 +11,17 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** Rounded label sized to its own text: no truncation, wraps as a whole pill. */
+function Pill({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <li
+      className={`inline-flex items-center whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-medium capitalize text-slate-700 ${className}`}
+    >
+      {children}
+    </li>
+  );
+}
+
 export function CaseDetail({
   kycCase,
   actions,
@@ -27,10 +38,20 @@ export function CaseDetail({
         <h1 className="mt-2 text-2xl font-semibold">
           {kycCase.case_number} — {kycCase.full_name}
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          {kycCase.reason_flagged} · {kycCase.risk_level} risk · {kycCase.status.replace(/_/g, ' ')} ·
-          open {formatAge(kycCase.created_at)}
-        </p>
+        <ul className="mt-3 flex flex-wrap items-center gap-2" aria-label="Case attributes">
+          <Pill>{kycCase.reason_flagged}</Pill>
+          <Pill
+            className={
+              kycCase.risk_level === 'high'
+                ? 'border-red-200 bg-red-50 text-red-800'
+                : 'border-amber-200 bg-amber-50 text-amber-800'
+            }
+          >
+            {kycCase.risk_level} risk
+          </Pill>
+          <Pill>{kycCase.status.replace(/_/g, ' ')}</Pill>
+          <Pill>open {formatAge(kycCase.created_at)}</Pill>
+        </ul>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">

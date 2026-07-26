@@ -21,7 +21,8 @@ export function ActionPanel({
   currentAnalyst: string;
 }) {
   const router = useRouter();
-  const [action, setAction] = useState<CaseActionType>('approve');
+  // Empty until the analyst picks deliberately; no action is a safe default.
+  const [action, setAction] = useState<CaseActionType | ''>('');
   const [comment, setComment] = useState('');
   const [analyst, setAnalyst] = useState<string>(currentAnalyst);
   const [assignTo, setAssignTo] = useState<string>(
@@ -31,7 +32,7 @@ export function ActionPanel({
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const canSubmit = comment.trim().length > 0 && !submitting;
+  const canSubmit = action !== '' && comment.trim().length > 0 && !submitting;
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -57,6 +58,7 @@ export function ActionPanel({
       }
       setComment('');
       setMessage(`Recorded ${ACTION_LABELS[action]} on ${caseNumber}`);
+      setAction('');
       router.refresh();
     } catch {
       setError('Unable to record the action');
@@ -82,9 +84,10 @@ export function ActionPanel({
         <select
           id="action"
           value={action}
-          onChange={(e) => setAction(e.target.value as CaseActionType)}
+          onChange={(e) => setAction(e.target.value as CaseActionType | '')}
           className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
         >
+          <option value="">Select an action…</option>
           {CASE_ACTIONS.map((value) => (
             <option key={value} value={value}>
               {ACTION_LABELS[value]}

@@ -172,7 +172,7 @@ export function CaseQueue({ cases }: { cases: KycCase[] }) {
           {/* Rows scroll inside the table area so the page itself stays put. */}
           <div className="max-h-[70vh] overflow-auto">
             <table className="min-w-full text-left text-sm">
-              <thead className="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600 shadow-[inset_0_-1px_0_theme(colors.slate.200)]">
+              <thead className="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
                 <tr>
                   {COLUMNS.map(({ key, label }) => {
                     const direction = directionFor(key);
@@ -180,7 +180,8 @@ export function CaseQueue({ cases }: { cases: KycCase[] }) {
                       <th
                         key={key}
                         scope="col"
-                        className="px-4 py-3"
+                        // Separator lives on the cells: a sticky <thead> does not paint its own border.
+                        className="bg-slate-100 px-4 py-3 shadow-[inset_0_-1px_0_theme(colors.slate.300)]"
                         aria-sort={
                           direction === 'asc'
                             ? 'ascending'

@@ -1,8 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CaseDetail } from '@/components/CaseDetail';
-import { maskSsn, type CaseAction } from '@/lib/domain';
-import { makeCase } from './helpers/fixtures';
+import { formatAge, maskSsn, type CaseAction } from '@/lib/domain';
+import { daysAgo, makeCase } from './helpers/fixtures';
 
 const refresh = jest.fn();
 jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => refresh() }) }));
@@ -61,7 +61,39 @@ describe('CaseDetail', () => {
     expect(screen.getByText(/request_docs · Florence/)).toBeInTheDocument();
   });
 
-  it('keeps submit disabled until a non-empty comment is entered', async () => {
+  it('shows the case attributes as pills', () => {
+    const kycCase = makeCase({
+      reason_flagged: 'sanctions watchlist',
+      risk_level: 'high',
+      status: 'docs_requested',
+      created_at: daysAgo(78),
+    });
+    render(<CaseDetail kycCase={kycCase} actions={[]} />);
+
+    const pills = within(screen.getByRole('list', { name: 'Case attributes' })).getAllByRole(
+      'listitem',
+    );
+    expect(pills.map((pill) => pill.textContent)).toEqual([
+      'sanctions watchlist',
+      'high risk',
+      'docs requested',
+      `open ${formatAge(kycCase.created_at)}`,
+    ]);
+    // Each pill has to size to its own text rather than clip it.
+    for (const pill of pills) {
+      expect(pill).toHaveClass('whitespace-nowrap');
+      expect(pill.className).not.toMatch(/truncate|overflow-hidden|w-\d/);
+    }
+  });
+
+  it('defaults the action dropdown to no selection', () => {
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    const select = screen.getByLabelText('Action') as HTMLSelectElement;
+    expect(select.value).toBe('');
+    expect(screen.getByRole('option', { name: 'Select an action…' }).getAttribute('value')).toBe('');
+  });
+
+  it('keeps submit disabled until both an action and a non-empty comment are entered', async () => {
     render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
     const submit = screen.getByRole('button', { name: /submit action/i });
     expect(submit).toBeDisabled();
@@ -70,7 +102,22 @@ describe('CaseDetail', () => {
     expect(submit).toBeDisabled();
 
     await userEvent.type(screen.getByLabelText(/comment/i), 'Verified against the court order');
+    // Comment alone is not enough while no action is chosen.
+    expect(submit).toBeDisabled();
+
+    await userEvent.selectOptions(screen.getByLabelText('Action'), 'approve');
     expect(submit).toBeEnabled();
+  });
+
+  it('clears the chosen action after a successful submit', async () => {
+    render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    await userEvent.selectOptions(screen.getByLabelText('Action'), 'escalate');
+    await userEvent.type(screen.getByLabelText(/comment/i), 'Escalating to the sanctions desk');
+    await userEvent.click(screen.getByRole('button', { name: /submit action/i }));
+
+    expect(await screen.findByRole('status')).toBeInTheDocument();
+    expect((screen.getByLabelText('Action') as HTMLSelectElement).value).toBe('');
+    expect(screen.getByRole('button', { name: /submit action/i })).toBeDisabled();
   });
 
   it('posts the action, comment, and acting analyst, then refreshes', async () => {
@@ -107,6 +154,7 @@ describe('CaseDetail', () => {
     }) as unknown as typeof fetch;
 
     render(<CaseDetail kycCase={KYC_CASE} actions={ACTIONS} />);
+    await userEvent.selectOptions(screen.getByLabelText('Action'), 'approve');
     await userEvent.type(screen.getByLabelText(/comment/i), 'x');
     await userEvent.click(screen.getByRole('button', { name: /submit action/i }));
 
