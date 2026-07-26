@@ -143,7 +143,7 @@ export function CaseQueue({ cases }: { cases: KycCase[] }) {
                       </Link>
                     </td>
                     <td className="px-4 py-3">{c.full_name}</td>
-                    <td className="px-4 py-3 tabular-nums">{maskSsn(c.ssn)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 tabular-nums">{maskSsn(c.ssn)}</td>
                     <td className="px-4 py-3">{c.reason_flagged}</td>
                     <td className="px-4 py-3">
                       <span
