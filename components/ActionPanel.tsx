@@ -1,0 +1,138 @@
+'use client';
+
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { AnalystPicker } from './AnalystPicker';
+import { ANALYSTS, CASE_ACTIONS, MAX_COMMENT_LENGTH, type CaseActionType } from '@/lib/domain';
+
+const ACTION_LABELS: Record<CaseActionType, string> = {
+  approve: 'Approve',
+  reject: 'Reject',
+  request_docs: 'Request documents',
+  escalate: 'Escalate',
+  reassign: 'Reassign',
+};
+
+export function ActionPanel({
+  caseNumber,
+  currentAnalyst,
+}: {
+  caseNumber: string;
+  currentAnalyst: string;
+}) {
+  const router = useRouter();
+  const [action, setAction] = useState<CaseActionType>('approve');
+  const [comment, setComment] = useState('');
+  const [analyst, setAnalyst] = useState<string>(currentAnalyst);
+  const [assignTo, setAssignTo] = useState<string>(
+    ANALYSTS.find((a) => a !== currentAnalyst) ?? ANALYSTS[0],
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const canSubmit = comment.trim().length > 0 && !submitting;
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/cases/${caseNumber}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          comment,
+          analyst,
+          ...(action === 'reassign' ? { assignTo } : {}),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        setError(payload.error ?? 'Unable to record the action');
+        return;
+      }
+      setComment('');
+      setMessage(`Recorded ${ACTION_LABELS[action]} on ${caseNumber}`);
+      router.refresh();
+    } catch {
+      setError('Unable to record the action');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-4 rounded border border-slate-200 bg-white p-5"
+      aria-label="Case action panel"
+    >
+      <h2 className="text-base font-semibold">Take action</h2>
+
+      <AnalystPicker value={analyst} onChange={setAnalyst} />
+
+      <div className="flex flex-col gap-1">
+        <label htmlFor="action" className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Action
+        </label>
+        <select
+          id="action"
+          value={action}
+          onChange={(e) => setAction(e.target.value as CaseActionType)}
+          className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+        >
+          {CASE_ACTIONS.map((value) => (
+            <option key={value} value={value}>
+              {ACTION_LABELS[value]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {action === 'reassign' && (
+        <AnalystPicker value={assignTo} onChange={setAssignTo} label="Reassign to" id="assign-to" />
+      )}
+
+      <div className="flex flex-col gap-1">
+        <label htmlFor="comment" className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Comment (required)
+        </label>
+        <textarea
+          id="comment"
+          value={comment}
+          maxLength={MAX_COMMENT_LENGTH}
+          onChange={(e) => setComment(e.target.value)}
+          rows={4}
+          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          placeholder="Explain the decision for the audit log"
+        />
+        <span className="text-xs text-slate-400">
+          {comment.length}/{MAX_COMMENT_LENGTH}
+        </span>
+      </div>
+
+      {error && (
+        <p role="alert" className="text-sm text-red-700">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p role="status" className="text-sm text-green-700">
+          {message}
+        </p>
+      )}
+
+      <button
+        type="submit"
+        disabled={!canSubmit}
+        className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+      >
+        {submitting ? 'Submitting…' : 'Submit action'}
+      </button>
+    </form>
+  );
+}
