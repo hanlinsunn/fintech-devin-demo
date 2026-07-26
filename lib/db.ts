@@ -1,10 +1,12 @@
 /**
- * Owns all SQLite access for the KYC review queue.
+ * Owns all database access for the KYC review queue.
  *
- * Nothing outside this module talks to `better-sqlite3` directly. The database
- * file is created and seeded from `data/cases.csv` the first time it is opened.
+ * Nothing outside this module talks to `@libsql/client` directly. The client points at a
+ * local SQLite file by default and at a remote Turso/libSQL database when
+ * `TURSO_DATABASE_URL` is set. The schema is created and seeded from `data/cases.csv`
+ * the first time the client is opened.
  */
-import Database from 'better-sqlite3';
+import { createClient, type Client } from '@libsql/client';
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { parseCsvRecords } from './csv';
@@ -79,7 +81,8 @@ export interface RecordActionInput {
 export const DEFAULT_DB_PATH = path.join(process.cwd(), 'data', 'kyc.db');
 export const DEFAULT_SEED_CSV_PATH = path.join(process.cwd(), 'data', 'cases.csv');
 
-let db: Database.Database | null = null;
+let client: Client | null = null;
+let initPromise: Promise<void> | null = null;
 
 function dbPath(): string {
   return process.env.KYC_DB_PATH ?? DEFAULT_DB_PATH;
@@ -89,70 +92,90 @@ function seedCsvPath(): string {
   return process.env.KYC_SEED_CSV ?? DEFAULT_SEED_CSV_PATH;
 }
 
+/** Remote Turso database when configured, otherwise a local SQLite file. */
+function createDbClient(): Client {
+  const url = process.env.TURSO_DATABASE_URL;
+  if (url) {
+    return createClient({ url, authToken: process.env.TURSO_AUTH_TOKEN });
+  }
+  const file = dbPath();
+  mkdirSync(path.dirname(file), { recursive: true });
+  return createClient({ url: `file:${file}` });
+}
+
 /** Creates the schema and, when the `cases` table is empty, seeds it from the CSV. */
-export function initialize(connection: Database.Database, csvPath = seedCsvPath()): void {
-  connection.pragma('foreign_keys = ON');
-  connection.exec(SCHEMA);
-  const { count } = connection.prepare('SELECT COUNT(*) AS count FROM cases').get() as {
-    count: number;
-  };
-  if (count > 0) return;
+export async function initialize(connection: Client, csvPath = seedCsvPath()): Promise<void> {
+  await connection.execute('PRAGMA foreign_keys = ON');
+  await connection.executeMultiple(SCHEMA);
+  const result = await connection.execute('SELECT COUNT(*) AS count FROM cases');
+  if (Number(result.rows[0].count) > 0) return;
   if (!existsSync(csvPath)) {
     throw new Error(`Seed file not found at ${csvPath}`);
   }
   const records = parseCsvRecords(readFileSync(csvPath, 'utf8'));
-  const insert = connection.prepare(`
+  const sql = `
     INSERT INTO cases (
       case_number, full_name, date_of_birth, home_address, ssn, last_utility_bill_address,
       drivers_license_number, applicant_notes, reason_flagged, risk_level, city, created_at,
       status, assigned_analyst, approvable
     ) VALUES (
-      @case_number, @full_name, @date_of_birth, @home_address, @ssn, @last_utility_bill_address,
-      @drivers_license_number, @applicant_notes, @reason_flagged, @risk_level, @city, @created_at,
-      @status, @assigned_analyst, @approvable
+      :case_number, :full_name, :date_of_birth, :home_address, :ssn, :last_utility_bill_address,
+      :drivers_license_number, :applicant_notes, :reason_flagged, :risk_level, :city, :created_at,
+      :status, :assigned_analyst, :approvable
     )
-  `);
-  const seed = connection.transaction((rows: Record<string, string>[]) => {
-    for (const row of rows) {
-      insert.run({ ...row, approvable: Number(row.approvable) === 1 ? 1 : 0 });
-    }
-  });
-  seed(records);
+  `;
+  await connection.batch(
+    records.map((row) => ({
+      sql,
+      args: { ...row, approvable: Number(row.approvable) === 1 ? 1 : 0 },
+    })),
+    'write',
+  );
 }
 
-/** Returns the process-wide connection, creating and seeding the database if needed. */
-export function getDb(): Database.Database {
-  if (db) return db;
-  const file = dbPath();
-  mkdirSync(path.dirname(file), { recursive: true });
-  const connection = new Database(file);
-  initialize(connection);
-  db = connection;
-  return db;
+/** Returns the process-wide client, creating and seeding the database if needed. */
+export async function getClient(): Promise<Client> {
+  client ??= createDbClient();
+  const connection = client;
+  initPromise ??= initialize(connection);
+  try {
+    await initPromise;
+  } catch (error) {
+    initPromise = null;
+    throw error;
+  }
+  return connection;
 }
 
-/** Closes the cached connection. Used by tests and to simulate a server restart. */
+/** Closes the cached client. Used by tests and to simulate a server restart. */
 export function closeDb(): void {
-  db?.close();
-  db = null;
+  client?.close();
+  client = null;
+  initPromise = null;
 }
 
-export function listCases(): KycCase[] {
-  return getDb()
-    .prepare('SELECT * FROM cases ORDER BY created_at DESC')
-    .all() as KycCase[];
+export async function listCases(): Promise<KycCase[]> {
+  const connection = await getClient();
+  const result = await connection.execute('SELECT * FROM cases ORDER BY created_at DESC');
+  return result.rows as unknown as KycCase[];
 }
 
-export function getCase(caseNumber: string): KycCase | undefined {
-  return getDb().prepare('SELECT * FROM cases WHERE case_number = ?').get(caseNumber) as
-    | KycCase
-    | undefined;
+export async function getCase(caseNumber: string): Promise<KycCase | undefined> {
+  const connection = await getClient();
+  const result = await connection.execute({
+    sql: 'SELECT * FROM cases WHERE case_number = ?',
+    args: [caseNumber],
+  });
+  return result.rows[0] as unknown as KycCase | undefined;
 }
 
-export function listCaseActions(caseNumber: string): CaseAction[] {
-  return getDb()
-    .prepare('SELECT * FROM case_actions WHERE case_number = ? ORDER BY id ASC')
-    .all(caseNumber) as CaseAction[];
+export async function listCaseActions(caseNumber: string): Promise<CaseAction[]> {
+  const connection = await getClient();
+  const result = await connection.execute({
+    sql: 'SELECT * FROM case_actions WHERE case_number = ? ORDER BY id ASC',
+    args: [caseNumber],
+  });
+  return result.rows as unknown as CaseAction[];
 }
 
 function validate(input: RecordActionInput): void {
@@ -183,41 +206,52 @@ export interface RecordActionResult {
  * `reassign` additionally updates `cases.assigned_analyst`. Existing `case_actions`
  * rows are never modified.
  */
-export function recordAction(input: RecordActionInput): RecordActionResult {
+export async function recordAction(input: RecordActionInput): Promise<RecordActionResult> {
   validate(input);
-  const connection = getDb();
-  const run = connection.transaction((): RecordActionResult => {
-    const existing = connection
-      .prepare('SELECT case_number FROM cases WHERE case_number = ?')
-      .get(input.caseNumber);
-    if (!existing) throw new CaseNotFoundError(input.caseNumber);
+  const connection = await getClient();
+  const tx = await connection.transaction('write');
+  try {
+    const existing = await tx.execute({
+      sql: 'SELECT case_number FROM cases WHERE case_number = ?',
+      args: [input.caseNumber],
+    });
+    if (existing.rows.length === 0) throw new CaseNotFoundError(input.caseNumber);
 
     const createdAt = new Date().toISOString();
-    const insert = connection
-      .prepare(
-        `INSERT INTO case_actions (case_number, action, comment, analyst, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(input.caseNumber, input.action, input.comment.trim(), input.analyst, createdAt);
+    const insert = await tx.execute({
+      sql: `INSERT INTO case_actions (case_number, action, comment, analyst, created_at)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [input.caseNumber, input.action, input.comment.trim(), input.analyst, createdAt],
+    });
 
     const status = ACTION_TO_STATUS[input.action];
     if (input.action === 'reassign') {
-      connection
-        .prepare('UPDATE cases SET status = ?, assigned_analyst = ? WHERE case_number = ?')
-        .run(status, input.assignTo!.trim(), input.caseNumber);
+      await tx.execute({
+        sql: 'UPDATE cases SET status = ?, assigned_analyst = ? WHERE case_number = ?',
+        args: [status, input.assignTo!.trim(), input.caseNumber],
+      });
     } else {
-      connection
-        .prepare('UPDATE cases SET status = ? WHERE case_number = ?')
-        .run(status, input.caseNumber);
+      await tx.execute({
+        sql: 'UPDATE cases SET status = ? WHERE case_number = ?',
+        args: [status, input.caseNumber],
+      });
     }
 
-    const updated = connection
-      .prepare('SELECT * FROM cases WHERE case_number = ?')
-      .get(input.caseNumber) as KycCase;
-    const action = connection
-      .prepare('SELECT * FROM case_actions WHERE id = ?')
-      .get(insert.lastInsertRowid) as CaseAction;
-    return { case: updated, action };
-  });
-  return run();
+    const updated = await tx.execute({
+      sql: 'SELECT * FROM cases WHERE case_number = ?',
+      args: [input.caseNumber],
+    });
+    const action = await tx.execute({
+      sql: 'SELECT * FROM case_actions WHERE id = ?',
+      args: [Number(insert.lastInsertRowid)],
+    });
+    await tx.commit();
+    return {
+      case: updated.rows[0] as unknown as KycCase,
+      action: action.rows[0] as unknown as CaseAction,
+    };
+  } catch (error) {
+    await tx.rollback();
+    throw error;
+  }
 }

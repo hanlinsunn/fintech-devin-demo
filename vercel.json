@@ -1,11 +1,3 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "build": {
-    "env": {
-      "KYC_DB_PATH": "/tmp/kyc.db"
-    }
-  },
-  "env": {
-    "KYC_DB_PATH": "/tmp/kyc.db"
-  }
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }

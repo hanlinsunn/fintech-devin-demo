@@ -4,7 +4,8 @@ An internal-tool prototype for compliance/audit analysts at a Series C fintech: 
 customer applications and take auditable actions on them.
 
 Built with Next.js 14 (App Router) + TypeScript, Tailwind CSS, Next.js Route Handlers for the API,
-and SQLite (`better-sqlite3`) seeded from a bundled CSV. No Docker, no cloud account, no env keys.
+and SQLite over libSQL (`@libsql/client`) seeded from a bundled CSV. No Docker, no cloud account, no
+env keys.
 
 ## Quick start
 
@@ -26,17 +27,31 @@ npm run generate:seed   # regenerate data/cases.csv
 
 ## Deploy to Vercel
 
-The app runs statelessly on Vercel: `vercel.json` sets `KYC_DB_PATH=/tmp/kyc.db`, the only writable
-directory in the serverless runtime (the same variable can be set in the Vercel dashboard instead).
-On a cold start the SQLite file does not exist, so `lib/db.ts` recreates and re-seeds it from
-`data/cases.csv`, which is bundled into the server output via `experimental.outputFileTracingIncludes`
-in `next.config.js`.
+Serverless instances have no durable filesystem, so on Vercel the app points `@libsql/client` at a
+remote [Turso](https://turso.tech) database. Set these two variables in the Vercel dashboard
+(Project → Settings → Environment Variables):
 
-Consequences, all acceptable for a demo: data resets on every cold start, and concurrent instances
-each have their own `/tmp` database, so actions taken on one instance are not visible on another.
-Actions submitted within a warm instance behave normally.
+| variable | value |
+| --- | --- |
+| `TURSO_DATABASE_URL` | `libsql://<your-db>-<org>.turso.io` |
+| `TURSO_AUTH_TOKEN` | a token for that database |
 
-Local development is unchanged — no env vars are needed and the app keeps using `data/kyc.db`.
+Create them with the Turso CLI:
+
+```bash
+curl -sSfL https://get.tur.so/install.sh | bash
+turso auth login
+turso db create kyc-review-queue
+turso db show kyc-review-queue --url        # -> TURSO_DATABASE_URL
+turso db tokens create kyc-review-queue     # -> TURSO_AUTH_TOKEN
+```
+
+With those set, case updates and audit-log rows persist durably and are shared across all serverless
+instances. The schema is created and seeded from `data/cases.csv` on first use — the CSV is bundled
+into the server output via `experimental.outputFileTracingIncludes` in `next.config.js`.
+
+Omitting both variables (as in local development) falls back to an embedded `data/kyc.db` file, so
+running the app locally still needs no account and no env vars.
 
 ## What the app does
 
@@ -63,7 +78,7 @@ Local development is unchanged — no env vars are needed and the app keeps usin
 
 ## Data model
 
-`lib/db.ts` owns all SQLite access; nothing else touches `better-sqlite3`.
+`lib/db.ts` owns all database access; nothing else touches `@libsql/client`.
 
 `cases`
 | column | notes |

@@ -4,5 +4,5 @@ import { listCases } from '@/lib/db';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  return NextResponse.json({ cases: listCases() });
+  return NextResponse.json({ cases: await listCases() });
 }

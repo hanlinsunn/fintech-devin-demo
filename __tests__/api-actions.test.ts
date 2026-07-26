@@ -31,10 +31,16 @@ function post(caseNumber: string, body: unknown, signedInAs?: string) {
 }
 
 /** A case with no audit history, assigned to `analyst`. */
-function untouchedCaseFor(analyst: string): string {
-  return listCases().find(
-    (c) => c.assigned_analyst === analyst && listCaseActions(c.case_number).length === 0,
-  )!.case_number;
+async function untouchedCaseFor(analyst: string): Promise<string> {
+  for (const kycCase of await listCases()) {
+    if (
+      kycCase.assigned_analyst === analyst &&
+      (await listCaseActions(kycCase.case_number)).length === 0
+    ) {
+      return kycCase.case_number;
+    }
+  }
+  throw new Error(`No untouched case assigned to ${analyst}`);
 }
 
 describe('GET /api/cases', () => {
@@ -48,7 +54,7 @@ describe('GET /api/cases', () => {
 
 describe('GET /api/cases/[caseNumber]', () => {
   it('returns a case with its audit log', async () => {
-    const caseNumber = listCases()[0].case_number;
+    const caseNumber = (await listCases())[0].case_number;
     const response = await getCaseRoute(new Request('http://localhost'), {
       params: { caseNumber },
     });
@@ -68,7 +74,7 @@ describe('GET /api/cases/[caseNumber]', () => {
 
 describe('POST /api/cases/[caseNumber]/actions', () => {
   it('records the action with the signed-in analyst', async () => {
-    const caseNumber = untouchedCaseFor('Patrick');
+    const caseNumber = await untouchedCaseFor('Patrick');
     const response = await post(
       caseNumber,
       { action: 'escalate', comment: 'Sanctions hit needs compliance sign-off' },
@@ -81,7 +87,7 @@ describe('POST /api/cases/[caseNumber]/actions', () => {
   });
 
   it('rejects an action on another analyst’s case with 403', async () => {
-    const caseNumber = untouchedCaseFor('Florence');
+    const caseNumber = await untouchedCaseFor('Florence');
     const response = await post(
       caseNumber,
       { action: 'approve', comment: 'Not my case' },
@@ -89,25 +95,25 @@ describe('POST /api/cases/[caseNumber]/actions', () => {
     );
     expect(response.status).toBe(403);
     expect((await response.json()).error).toBe('Not authorized to take this action');
-    expect(listCaseActions(caseNumber)).toHaveLength(0);
+    expect(await listCaseActions(caseNumber)).toHaveLength(0);
   });
 
   it('rejects an unauthenticated action with 403', async () => {
-    const caseNumber = untouchedCaseFor('Florence');
+    const caseNumber = await untouchedCaseFor('Florence');
     const response = await post(caseNumber, { action: 'approve', comment: 'Who am I' });
     expect(response.status).toBe(403);
-    expect(listCaseActions(caseNumber)).toHaveLength(0);
+    expect(await listCaseActions(caseNumber)).toHaveLength(0);
   });
 
   it('rejects a missing comment with 400', async () => {
-    const caseNumber = untouchedCaseFor('Daniel');
+    const caseNumber = await untouchedCaseFor('Daniel');
     const response = await post(caseNumber, { action: 'approve', comment: '' }, 'Daniel');
     expect(response.status).toBe(400);
     expect((await response.json()).error).toMatch(/comment is required/i);
   });
 
   it('rejects an unknown action with 400', async () => {
-    const caseNumber = untouchedCaseFor('Daniel');
+    const caseNumber = await untouchedCaseFor('Daniel');
     const response = await post(
       caseNumber,
       { action: 'delete_everything', comment: 'nope' },
@@ -117,7 +123,7 @@ describe('POST /api/cases/[caseNumber]/actions', () => {
   });
 
   it('rejects an oversized comment with 400', async () => {
-    const caseNumber = untouchedCaseFor('Daniel');
+    const caseNumber = await untouchedCaseFor('Daniel');
     const response = await post(
       caseNumber,
       { action: 'approve', comment: 'x'.repeat(MAX_COMMENT_LENGTH + 1) },

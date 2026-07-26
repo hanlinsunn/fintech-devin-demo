@@ -5,13 +5,14 @@ import { getSessionAnalyst } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
-export default function CaseDetailPage({ params }: { params: { caseNumber: string } }) {
-  const kycCase = getCase(params.caseNumber);
+export default async function CaseDetailPage({ params }: { params: { caseNumber: string } }) {
+  const kycCase = await getCase(params.caseNumber);
   if (!kycCase) notFound();
+  const actions = await listCaseActions(params.caseNumber);
   return (
     <CaseDetail
       kycCase={kycCase}
-      actions={listCaseActions(params.caseNumber)}
+      actions={actions}
       sessionAnalyst={getSessionAnalyst()}
     />
   );
