@@ -25,7 +25,8 @@ export function ActionPanel({
   authorized: boolean;
 }) {
   const router = useRouter();
-  const [action, setAction] = useState<CaseActionType>('approve');
+  // Empty until the analyst picks deliberately; no action is a safe default.
+  const [action, setAction] = useState<CaseActionType | ''>('');
   const [comment, setComment] = useState('');
   const [assignTo, setAssignTo] = useState<string>(
     ANALYSTS.find((a) => a !== assignedAnalyst) ?? ANALYSTS[0],
@@ -34,7 +35,7 @@ export function ActionPanel({
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const canSubmit = authorized && comment.trim().length > 0 && !submitting;
+  const canSubmit = authorized && action !== '' && comment.trim().length > 0 && !submitting;
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -59,6 +60,7 @@ export function ActionPanel({
       }
       setComment('');
       setMessage(`Recorded ${ACTION_LABELS[action]} on ${caseNumber}`);
+      setAction('');
       router.refresh();
     } catch {
       setError('Unable to record the action');
@@ -92,9 +94,10 @@ export function ActionPanel({
           id="action"
           value={action}
           disabled={!authorized}
-          onChange={(e) => setAction(e.target.value as CaseActionType)}
+          onChange={(e) => setAction(e.target.value as CaseActionType | '')}
           className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
         >
+          <option value="">Select an action…</option>
           {CASE_ACTIONS.map((value) => (
             <option key={value} value={value}>
               {ACTION_LABELS[value]}
