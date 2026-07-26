@@ -30,7 +30,9 @@ npm run generate:seed   # regenerate data/cases.csv
   risk level, age of request (computed from `created_at`), status, assigned analyst, and city.
   Client-side filtering by risk level and status, plus an empty-queue state. Every column header is
   a sort control that cycles ascending → descending → default (unsorted) queue order, with stacked
-  up/down arrows showing the current state and `aria-sort` on the header.
+  up/down arrows showing the current state and `aria-sort` on the header. Rows are paginated 25 at a
+  time and scroll inside the table (sticky header) rather than scrolling the page; filtering and
+  sorting apply to the whole queue and reset to page 1.
 - **Case detail (`/cases/[caseNumber]`)** — full (fake) PII: name, DOB, home address, unmasked SSN,
   last utility bill address, driver's license number, plus applicant notes, city, and the audit log.
 - **Action panel** — pick one of five actions (approve, reject, request documents, escalate,
