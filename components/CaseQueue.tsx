@@ -13,20 +13,69 @@ import {
   type RiskLevel,
 } from '@/lib/domain';
 
-type SortKey = 'age' | 'risk_level' | 'status';
+type SortKey =
+  | 'case_number'
+  | 'full_name'
+  | 'ssn'
+  | 'reason_flagged'
+  | 'risk_level'
+  | 'age'
+  | 'status'
+  | 'assigned_analyst'
+  | 'city';
+
 type SortDirection = 'asc' | 'desc';
 
+interface SortState {
+  key: SortKey;
+  direction: SortDirection;
+}
+
 const RISK_ORDER: Record<RiskLevel, number> = { medium: 0, high: 1 };
+
+/** Ascending comparators; descending reuses them negated. */
+const COMPARATORS: Record<SortKey, (a: KycCase, b: KycCase) => number> = {
+  case_number: (a, b) => a.case_number.localeCompare(b.case_number, 'en', { numeric: true }),
+  full_name: (a, b) => a.full_name.localeCompare(b.full_name),
+  ssn: (a, b) => a.ssn.localeCompare(b.ssn),
+  reason_flagged: (a, b) => a.reason_flagged.localeCompare(b.reason_flagged),
+  risk_level: (a, b) => RISK_ORDER[a.risk_level] - RISK_ORDER[b.risk_level],
+  age: (a, b) => ageInDays(a.created_at) - ageInDays(b.created_at),
+  status: (a, b) => a.status.localeCompare(b.status),
+  assigned_analyst: (a, b) => a.assigned_analyst.localeCompare(b.assigned_analyst),
+  city: (a, b) => a.city.localeCompare(b.city),
+};
+
+const COLUMNS: { key: SortKey; label: string }[] = [
+  { key: 'case_number', label: 'Case number' },
+  { key: 'full_name', label: 'Full name' },
+  { key: 'ssn', label: 'SSN' },
+  { key: 'reason_flagged', label: 'Reason flagged' },
+  { key: 'risk_level', label: 'Risk level' },
+  { key: 'age', label: 'Age of request' },
+  { key: 'status', label: 'Status' },
+  { key: 'assigned_analyst', label: 'Assigned analyst' },
+  { key: 'city', label: 'City' },
+];
 
 function statusLabel(status: CaseStatus): string {
   return status.replace(/_/g, ' ');
 }
 
+/** Stacked arrows: both muted when the column is unsorted, active one highlighted. */
+function SortArrows({ direction }: { direction: SortDirection | null }) {
+  return (
+    <span aria-hidden className="ml-1 inline-flex flex-col leading-none">
+      <span className={direction === 'asc' ? 'text-slate-900' : 'text-slate-400'}>▲</span>
+      <span className={direction === 'desc' ? 'text-slate-900' : 'text-slate-400'}>▼</span>
+    </span>
+  );
+}
+
 export function CaseQueue({ cases }: { cases: KycCase[] }) {
   const [riskFilter, setRiskFilter] = useState<'all' | RiskLevel>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | CaseStatus>('all');
-  const [sortKey, setSortKey] = useState<SortKey>('age');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [sort, setSort] = useState<SortState | null>(null);
 
   const visibleCases = useMemo(() => {
     const filtered = cases.filter(
@@ -34,21 +83,24 @@ export function CaseQueue({ cases }: { cases: KycCase[] }) {
         (riskFilter === 'all' || c.risk_level === riskFilter) &&
         (statusFilter === 'all' || c.status === statusFilter),
     );
-    const sorted = [...filtered].sort((a, b) => {
-      if (sortKey === 'age') return ageInDays(a.created_at) - ageInDays(b.created_at);
-      if (sortKey === 'risk_level') return RISK_ORDER[a.risk_level] - RISK_ORDER[b.risk_level];
-      return a.status.localeCompare(b.status);
-    });
-    return sortDirection === 'asc' ? sorted : sorted.reverse();
-  }, [cases, riskFilter, statusFilter, sortKey, sortDirection]);
+    if (!sort) return filtered;
+    const compare = COMPARATORS[sort.key];
+    const factor = sort.direction === 'asc' ? 1 : -1;
+    // Array.prototype.sort is stable, so equal rows keep the default queue order.
+    return [...filtered].sort((a, b) => factor * compare(a, b));
+  }, [cases, riskFilter, statusFilter, sort]);
 
+  /** Cycles a column through ascending → descending → unsorted. */
   function toggleSort(key: SortKey) {
-    if (key === sortKey) {
-      setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDirection('desc');
-    }
+    setSort((current) => {
+      if (current?.key !== key) return { key, direction: 'asc' };
+      if (current.direction === 'asc') return { key, direction: 'desc' };
+      return null;
+    });
+  }
+
+  function directionFor(key: SortKey): SortDirection | null {
+    return sort?.key === key ? sort.direction : null;
   }
 
   return (
@@ -104,33 +156,45 @@ export function CaseQueue({ cases }: { cases: KycCase[] }) {
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
               <tr>
-                <th scope="col" className="px-4 py-3">Case number</th>
-                <th scope="col" className="px-4 py-3">Full name</th>
-                <th scope="col" className="px-4 py-3">SSN</th>
-                <th scope="col" className="px-4 py-3">Reason flagged</th>
-                <th scope="col" className="px-4 py-3">
-                  <button type="button" onClick={() => toggleSort('risk_level')} className="uppercase">
-                    Risk level
-                  </button>
-                </th>
-                <th scope="col" className="px-4 py-3">
-                  <button type="button" onClick={() => toggleSort('age')} className="uppercase">
-                    Age of request
-                  </button>
-                </th>
-                <th scope="col" className="px-4 py-3">
-                  <button type="button" onClick={() => toggleSort('status')} className="uppercase">
-                    Status
-                  </button>
-                </th>
-                <th scope="col" className="px-4 py-3">Assigned analyst</th>
-                <th scope="col" className="px-4 py-3">City</th>
+                {COLUMNS.map(({ key, label }) => {
+                  const direction = directionFor(key);
+                  return (
+                    <th
+                      key={key}
+                      scope="col"
+                      className="px-4 py-3"
+                      aria-sort={
+                        direction === 'asc'
+                          ? 'ascending'
+                          : direction === 'desc'
+                            ? 'descending'
+                            : 'none'
+                      }
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(key)}
+                        title={
+                          direction === null
+                            ? `Sort by ${label} ascending`
+                            : direction === 'asc'
+                              ? `Sort by ${label} descending`
+                              : `Clear sorting on ${label}`
+                        }
+                        className="flex items-center whitespace-nowrap uppercase hover:text-slate-900"
+                      >
+                        {label}
+                        <SortArrows direction={direction} />
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
               {visibleCases.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={COLUMNS.length} className="px-4 py-8 text-center text-slate-500">
                     No cases match the selected filters.
                   </td>
                 </tr>

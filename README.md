@@ -28,8 +28,9 @@ npm run generate:seed   # regenerate data/cases.csv
 
 - **Queue (`/`)** — table of all cases with case number, full name, masked SSN, reason flagged,
   risk level, age of request (computed from `created_at`), status, assigned analyst, and city.
-  Client-side filtering by risk level and status, sorting by risk level, age, and status, plus an
-  empty-queue state.
+  Client-side filtering by risk level and status, plus an empty-queue state. Every column header is
+  a sort control that cycles ascending → descending → default (unsorted) queue order, with stacked
+  up/down arrows showing the current state and `aria-sort` on the header.
 - **Case detail (`/cases/[caseNumber]`)** — full (fake) PII: name, DOB, home address, unmasked SSN,
   last utility bill address, driver's license number, plus applicant notes, city, and the audit log.
 - **Action panel** — pick one of five actions (approve, reject, request documents, escalate,
@@ -97,7 +98,7 @@ without changing the data model or the API shape.
 
 ## Tests
 
-`npm test` covers the queue columns/age computation/sort/filter/empty state, the detail view's PII
+`npm test` covers the queue columns/age computation/per-column sort cycling/filter/empty state, the detail view's PII
 (masked in the queue, unmasked in detail), each of the five actions and the status it produces,
 `reassign` updating `assigned_analyst`, comment validation (empty and oversized), unknown cases and
 malformed JSON, seed-data integrity, persistence across a simulated server restart, and audit-log
